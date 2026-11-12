@@ -341,6 +341,103 @@ $('logoutBtn').onclick=async()=>{if(client)await client.auth.signOut();session=n
 $('loginBtn').onclick=()=>auth('login');$('signupBtn').onclick=()=>auth('signup');$('offlineBtn').onclick=showApp;
 window.addEventListener('online',()=>{setStatus();if(user)syncCloud(false)});
 window.addEventListener('offline',setStatus);
+/* ===== HB stage 1: تاریخ شمسی دقیق، مبلغ سه‌رقمی، قیمت هر کیلو خودکار ===== */
+const FA='۰۱۲۳۴۵۶۷۸۹',toFa=s=>String(s).replace(/\d/g,d=>FA[d]);
+const BR=[-61,9,38,199,426,686,756,818,1111,1181,1210,1635,2060,2097,2192,2262,2324,2394,2456,3178];
+const dv=(a,b)=>Math.floor(a/b),md=(a,b)=>a-dv(a,b)*b;
+function jalCal(jy){const gy=jy+621;let leapJ=-14,jp=BR[0],jump=0,jm,n;
+ for(let i=1;i<BR.length;i++){jm=BR[i];jump=jm-jp;if(jy<jm)break;leapJ+=dv(jump,33)*8+dv(md(jump,33),4);jp=jm}
+ n=jy-jp;leapJ+=dv(n,33)*8+dv(md(n,33)+3,4);
+ if(md(jump,33)===4&&jump-n===4)leapJ++;
+ const leapG=dv(gy,4)-dv((dv(gy,100)+1)*3,4)-150,march=20+leapJ-leapG;
+ if(jump-n<6)n=n-jump+dv(jump+4,33)*33;
+ let leap=md(md(n+1,33)-1,4);if(leap===-1)leap=4;
+ return {leap,gy,march}}
+const jMonthLen=(y,m)=>m<=6?31:m<=11?30:(jalCal(y).leap===0?30:29);
+function jalaliToIso(jy,jm,jd){const r=jalCal(jy),o=(jm<=6?(jm-1)*31:186+(jm-7)*30)+jd-1;return new Date(Date.UTC(r.gy,2,r.march+o)).toISOString().slice(0,10)}
+function isoToJalali(iso){
+ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);if(!m)return '';
+ const gy=+m[1],t=Date.UTC(gy,+m[2]-1,+m[3]);let jy=gy-621,r=jalCal(jy),d=Math.round((t-Date.UTC(r.gy,2,r.march))/864e5);
+ if(d<0){jy--;r=jalCal(jy);d=Math.round((t-Date.UTC(r.gy,2,r.march))/864e5)}
+ let jm,jd;if(d<186){jm=1+dv(d,31);jd=1+md(d,31)}else{d-=186;jm=7+dv(d,30);jd=1+md(d,30)}
+ return toFa(`${jy}/${pad(jm)}/${pad(jd)}`)}
+function readD(el){
+ if(!el)return {};const v=[...el.querySelectorAll('input')].map(i=>digits(i.value).trim());
+ if(!v.join(''))return {};if(!v.every(x=>/^\d+$/.test(x)))return {bad:true};
+ const [y,m,d]=v.map(Number);if(y<1300||y>1500||m<1||m>12||d<1||d>jMonthLen(y,m))return {bad:true};
+ return {iso:jalaliToIso(y,m,d)}}
+function fillD(el,iso){if(!el)return;const p=isoToJalali(iso).split('/'),i=el.querySelectorAll('input');i[0].value=p[0]||'';i[1].value=p[1]||'';i[2].value=p[2]||''}
+function dateInput(id,value=isoToday()){
+ const p=isoToJalali(value).split('/');
+ return `<span class="d3" id="${id}"><input inputmode="numeric" maxlength="4" placeholder="سال" value="${p[0]||''}"><input inputmode="numeric" maxlength="2" placeholder="ماه" value="${p[1]||''}"><input inputmode="numeric" maxlength="2" placeholder="روز" value="${p[2]||''}"></span>`}
+const nz=s=>{const t=digits(s).replace('٫','.').replace(/[^\d.]/g,'');return t===''?0:Number(t)};
+const fm=n=>n?toFa(Math.round(n).toLocaleString('en-US')):'';
+document.head.appendChild(Object.assign(document.createElement('style'),{textContent:'.d3{display:flex;gap:6px;direction:ltr}.d3 input{text-align:center}.d3 input:first-child{flex:1.6}.field input[readonly]{background:#eef4f0}.money{direction:ltr;text-align:right}'}));
+function formHTML(type){
+ const cash=['receipt','payment'].includes(type),product=['purchase','sale'].includes(type);
+ return `<form class="panel txForm" data-form="${type}"><input type="hidden" name="editId"><div class="grid">
+ <div class="field"><label>تاریخ شمسی (سال / ماه / روز)</label>${dateInput('date_'+type)}</div>
+ <div class="field"><label>طرف حساب</label><input name="party" placeholder="نام شخص" ${type==='expense'?'':'required'}></div>
+ ${product?`<div class="field"><label>نوع کالا</label><select name="product"><option>تیزابی ریز</option><option>تیزابی درشت</option><option>آفتابی</option><option>سرکه‌ای A</option><option>سرکه‌ای B</option><option>سرکه‌ای C</option><option>خرمایی</option><option>قنادی</option><option>مویز ایران</option><option>مویز افغان</option><option>سایر</option></select></div>
+ <div class="field"><label>وزن هر کارتن (کیلوگرم)</label><input name="pack" inputmode="decimal" value="۱۰"></div>
+ <div class="field"><label>تعداد کارتن</label><input name="cartons" inputmode="numeric"></div>
+ <div class="field"><label>وزن کل (کیلوگرم)</label><input name="kg" inputmode="decimal"></div>
+ <div class="field"><label>قیمت هر کیلو (خودکار، ریال)</label><input name="unitPrice" readonly tabindex="-1"></div>`:''}
+ <div class="field"><label>مبلغ کل (ریال)</label><input class="money" name="amount" inputmode="numeric" required></div>
+ ${cash?'':`<div class="field"><label>مبلغ تسویه‌شده (ریال)</label><input class="money" name="settled" inputmode="numeric"></div>`}
+ <div class="field"><label>روش پرداخت / دریافت</label><select name="method"><option>نقد</option><option>کارت به کارت</option><option>حواله</option><option>چک</option><option>نسیه</option><option>سایر</option></select></div>
+ <div class="field"><label>شماره چک</label><input name="chequeNo" placeholder="شماره چک"></div>
+ <div class="field"><label>سررسید چک شمسی</label>${dateInput('due_'+type,'')}</div>
+ <div class="field span3"><label>توضیحات</label><textarea name="note"></textarea></div>
+ </div><div class="actions"><button class="btn" type="submit">ثبت سند</button><button class="btn secondary" type="reset">پاک کردن فرم</button></div></form>`}
+function wire(f){
+ f.addEventListener('submit',saveForm);
+ f.addEventListener('reset',()=>setTimeout(()=>{fillD(f.querySelector('[id^="date_"]'),isoToday());fillD(f.querySelector('[id^="due_"]'),'');f.querySelector('[name="editId"]').value='';f.querySelector('button[type="submit"]').textContent='ثبت سند'},0));
+ f.addEventListener('input',e=>{
+  const t=e.target,g=n=>f.querySelector(`[name="${n}"]`);
+  if(t.classList.contains('money'))t.value=fm(nz(t.value));
+  if(!g('kg'))return;
+  if(t.name==='pack'||t.name==='cartons'){const k=nz(g('pack').value)*nz(g('cartons').value);g('kg').value=k?toFa(+k.toFixed(2)):''}
+  if(['pack','cartons','kg','amount'].includes(t.name)){const kg=nz(g('kg').value),a=nz(g('amount').value);g('unitPrice').value=kg>0&&a>0?fm(a/kg):''}
+ })}
+function setupForms(){
+ $('purchaseForm').innerHTML=formHTML('purchase');$('saleForm').innerHTML=formHTML('sale');
+ $('expenseForm').innerHTML=formHTML('expense');$('cashForm').innerHTML=formHTML('receipt');
+ document.querySelectorAll('.txForm').forEach(wire);
+ document.querySelectorAll('[data-cash]').forEach(b=>b.addEventListener('click',()=>{
+  cashType=b.dataset.cash;document.querySelectorAll('[data-cash]').forEach(x=>x.classList.toggle('active',x===b));
+  $('cashForm').innerHTML=formHTML(cashType);setupOneCash()}))}
+function setupOneCash(){wire($('cashForm').querySelector('form'))}
+function saveForm(e){
+ e.preventDefault();const f=e.currentTarget,type=f.dataset.form,g=n=>f.querySelector(`[name="${n}"]`)?.value??'';
+ const d=readD(f.querySelector('[id^="date_"]')),du=readD(f.querySelector('[id^="due_"]'));
+ if(!d.iso){alert('تاریخ شمسی معتبر نیست؛ سال، ماه و روز را درست وارد کن (روز ۳۰ اسفند فقط در سال کبیسه).');return}
+ if(du.bad){alert('سررسید چک معتبر نیست.');return}
+ const id=g('editId')||crypto.randomUUID(),cash=['receipt','payment'].includes(type),product=['purchase','sale'].includes(type);
+ const amount=nz(g('amount')),settled=cash?amount:nz(g('settled')),kg=product?nz(g('kg')):0,party=g('party').trim();
+ if(!cash&&type!=='expense'&&!party){alert('نام طرف حساب را وارد کن.');return}
+ if(amount<=0){alert('مبلغ کل را وارد کن.');return}
+ if(settled>amount){alert('تسویه نمی‌تواند از مبلغ کل بیشتر باشد.');return}
+ if(product&&kg<=0){alert('وزن کالا باید بیشتر از صفر باشد.');return}
+ if(type==='sale'&&stockFor(g('product'),id)<kg){alert('موجودی کافی نیست.');return}
+ const old=tx.find(x=>x.id===id)||{};
+ const item={...old,id,date:d.iso,type,party,product:product?g('product'):'',pack_kg:product?nz(g('pack')):0,cartons:product?nz(g('cartons')):0,kg,unit_price:product&&kg>0?Math.round(amount/kg):0,amount,settled,method:g('method'),cheque_no:g('chequeNo').trim(),cheque_due:du.iso||null,note:g('note').trim(),updated_at:new Date().toISOString(),deleted_at:null};
+ if(user)item.user_id=user.id;
+ const i=tx.findIndex(x=>x.id===id);if(i>=0)tx[i]=item;else tx.push(item);
+ save();f.reset();render();go('transactions');if(user)syncCloud(false)}
+function editTx(id){
+ const x=tx.find(t=>t.id===id);if(!x)return;
+ const page=x.type==='purchase'?'purchase':x.type==='sale'?'sale':x.type==='expense'?'expense':'cash';
+ go(page);
+ if(page==='cash'){cashType=x.type;document.querySelectorAll('[data-cash]').forEach(b=>b.classList.toggle('active',b.dataset.cash===cashType));$('cashForm').innerHTML=formHTML(cashType);setupOneCash()}
+ const f=document.querySelector(`.txForm[data-form="${x.type}"]`)||$('cashForm').querySelector('form');if(!f)return;
+ const set=(n,v)=>{const el=f.querySelector(`[name="${n}"]`);if(el)el.value=v??''};
+ set('editId',x.id);set('party',x.party);set('product',x.product);set('pack',toFa(+x.pack_kg||0));set('cartons',x.cartons?toFa(x.cartons):'');
+ set('kg',x.kg?toFa(x.kg):'');set('unitPrice',x.kg>0?fm(x.amount/x.kg):'');set('amount',fm(x.amount));set('settled',fm(x.settled));
+ set('method',x.method);set('chequeNo',x.cheque_no);set('note',x.note);
+ fillD(f.querySelector('[id^="date_"]'),x.date);fillD(f.querySelector('[id^="due_"]'),x.cheque_due||'');
+ f.querySelector('button[type="submit"]').textContent='ذخیره ویرایش'}
+/* ===== پایان بسته مرحله ۱ ===== */
 
 setupForms();
 setStatus();
